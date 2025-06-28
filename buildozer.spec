@@ -7,7 +7,7 @@ source.include_exts = py,png,jpg,kv,atlas,mp3
 version = 1.0
 
 # ←-- add every Python package you import
-requirements = python3,kivy,numpy,requests,opencv
+requirements = python3,kivy,numpy,requests,opencv,pillow
 
 orientation = portrait
 

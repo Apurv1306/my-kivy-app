@@ -30,6 +30,9 @@ from kivy.uix.image import Image
 from kivy.uix.label import Label
 from kivy.uix.popup import Popup
 from kivy.uix.textinput import TextInput
+# Import Window from Kivy for setting orientation explicitly if needed, though buildozer.spec handles most cases
+from kivy.core.window import Window
+
 
 # ---------------------------------------------------------------------------
 # Configuration constants
@@ -105,13 +108,20 @@ class FaceApp(App):
 
         # Haar cascade for face detection.
         # This XML file is part of OpenCV's data and is used to detect faces.
-        self.face_cascade = cv2.CascadeClassifier(
-            cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-        )
+        # When running on PC, ensure haarcascade_frontalface_default.xml is in the same directory
+        # as your Python script, or provide its full path.
+        cascade_path = "haarcascade_frontalface_default.xml"
+        if not Path(cascade_path).is_file():
+            # Fallback to OpenCV's default data path if not found locally, though it's best to include it.
+            cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+            Logger(f"[WARN] haarcascade_frontalface_default.xml not found locally. Attempting to load from OpenCV data path: {cascade_path}")
+
+        self.face_cascade = cv2.CascadeClassifier(cascade_path)
+        
         # Critical check: if the cascade classifier fails to load, face detection won't work.
         if self.face_cascade.empty():
             Logger(f"[ERROR] Failed to load Haar cascade classifier. "
-                   f"Path tried: {cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'}. "
+                   f"Path tried: {cascade_path}. "
                    f"Please ensure 'haarcascade_frontalface_default.xml' is present and accessible, "
                    f"and that opencv-python is correctly installed.")
             # Raise a runtime error to halt execution if the cascade is missing/corrupted.
@@ -161,6 +171,37 @@ class FaceApp(App):
         self.image_widget = Image(allow_stretch=True, keep_ratio=True)
         root.add_widget(self.image_widget)
 
+        # Label for displaying status messages (e.g., "Attendance recorded!", "Capturing in 3...")
+        self.status_label = Label(
+            text="",
+            size_hint=(None, None),
+            size=(dp(400), dp(50)),
+            pos_hint={"center_x": 0.5, "top": 0.95},
+            color=(1, 1, 0, 1), # Default color (yellow)
+            font_size=dp(20),
+            bold=True,
+            halign='center',
+            valign='middle'
+        )
+        root.add_widget(self.status_label)
+
+        # Label for displaying current live time (added per user request)
+        self.time_label = Label(
+            text="",
+            size_hint=(None, None),
+            size=(dp(200), dp(30)), # Adjust size as needed
+            pos_hint={"right": 0.98, "top": 0.98}, # Top-right corner
+            color=(1, 1, 1, 1), # White color
+            font_size=dp(16),
+            bold=True,
+            halign='right',
+            valign='top'
+        )
+        root.add_widget(self.time_label)
+        # Schedule time label update every second
+        Clock.schedule_interval(self._update_time_label, 1)
+
+
         # Button bar at the bottom for registration and updates.
         button_bar = BoxLayout(
             orientation="horizontal",
@@ -192,12 +233,22 @@ class FaceApp(App):
         self.register_btn.bind(on_press=self._register_popup)
         self.update_btn.bind(on_press=self._update_photos_popup)
 
-        # Open webcam. Explicitly attempt to open camera index 1 (often front camera).
-        # If it fails, raise an error as only front camera access is requested.
-        self.capture = cv2.VideoCapture(1) # Attempt to open front camera (index 1)
+        # Open webcam. ALWAYS attempt to open camera index 1 (often front camera for mobile).
+        # On PC, camera index 0 is often the default webcam.
+        # For PC testing, you might need to try 0 or another index.
+        self.capture = cv2.VideoCapture(1) # Attempt to open camera index 1
         if not self.capture.isOpened():
-            # If front camera cannot be opened, raise an error to inform the user/developer.
-            raise RuntimeError("Cannot open front camera (index 1) – please check camera devices and permissions.")
+            # If camera 1 fails, log the error and try camera 0 as a common fallback for PC.
+            # This specific change is for better PC debugging/testing compatibility.
+            Logger("[WARN] Could not open camera index 1. Attempting to open camera index 0 as fallback for PC testing.")
+            self.capture = cv2.VideoCapture(0)
+            if not self.capture.isOpened():
+                raise RuntimeError("Cannot open any camera (neither index 1 nor 0). Please ensure camera is available and drivers are installed.")
+            else:
+                Logger("[INFO] Successfully opened camera at index 0.")
+        else:
+            Logger("[INFO] Successfully opened camera at index 1.")
+
 
         # Start a separate thread for camera capture and processing to keep UI responsive.
         self.capture_thread = threading.Thread(
@@ -207,20 +258,6 @@ class FaceApp(App):
 
         # Schedule UI texture updates at approximately 30 frames per second.
         Clock.schedule_interval(self._update_texture, 1 / 30)
-
-        # Label for displaying status messages (e.g., "Attendance recorded!", "Capturing in 3...")
-        self.status_label = Label(
-            text="",
-            size_hint=(None, None),
-            size=(dp(400), dp(50)),
-            pos_hint={"center_x": 0.5, "top": 0.95},
-            color=(1, 1, 0, 1), # Default color (yellow)
-            font_size=dp(20),
-            bold=True,
-            halign='center',
-            valign='middle'
-        )
-        root.add_widget(self.status_label)
 
 
         return root
@@ -301,6 +338,11 @@ class FaceApp(App):
         self.status_label.text = ""
         self.status_label.color = (1, 1, 0, 1) # Reset to default color
 
+    def _update_time_label(self, _dt):
+        """Updates the live time label with the current time."""
+        current_time = datetime.now().strftime("%I:%M:%S %p") # e.g., 01:02:03 PM
+        self.time_label.text = current_time
+
     def _flash_image_widget(self):
         """Briefly flashes a green border around the image widget to indicate a photo capture."""
         # Clear any existing flash event to prevent multiple flashes overlapping
@@ -355,6 +397,8 @@ class FaceApp(App):
         while not self._stop_event.is_set(): # Loop until stop event is set
             ret, frame = self.capture.read() # Read a frame from the camera
             if not ret:
+                Logger("[WARN] Failed to read frame from camera. Retrying...")
+                time.sleep(0.1) # Small delay before trying again
                 continue  # Skip invalid frames.
 
             # Down-scale the frame for faster face detection processing.
@@ -385,8 +429,9 @@ class FaceApp(App):
                 try:
                     # Predict the label (person ID) and confidence for the detected face.
                     label, conf = self.recognizer.predict(face_roi)
-                except Exception:
-                    # If prediction fails, treat as unknown.
+                except Exception as e:
+                    # If prediction fails, treat as unknown. This can happen if recognizer is not trained.
+                    Logger(f"[WARN] Face recognition prediction failed: {e}. Treating as unknown.")
                     label, conf = -1, 1000  # Unknown label, high confidence (meaning low match).
 
                 name, emp_id = self.label_map.get(label, ("unknown", ""))
@@ -459,6 +504,8 @@ class FaceApp(App):
             return
         frame = self.frame_queue.get()
         # Flip the frame vertically and convert to bytes for Kivy texture compatibility.
+        # Kivy textures typically expect data in a specific format, and `flip(frame, 0)`
+        # is often needed for correct orientation from OpenCV to Kivy.
         buf = cv2.flip(frame, 0).tobytes()
         # Create a Kivy texture and blit the buffer.
         img_texture = Texture.create(size=(frame.shape[1], frame.shape[0]), colorfmt="bgr")
@@ -482,9 +529,14 @@ class FaceApp(App):
                 continue # Skip non-image files.
             try:
                 # Parse name and employee ID from the filename (e.g., "john_doe_EMP001_001.jpg").
-                name, emp_id, _ = file.split("_", 2)
-                name = name.lower()
-                emp_id = emp_id.upper()
+                # Expected format: name_empID_NNN.jpg
+                parts = file.split("_")
+                if len(parts) < 3:
+                    Logger(f"[WARN] Skipping file with unexpected filename format: {file}")
+                    continue
+                name = "_".join(parts[:-2]).lower() # Rejoin parts in case name has underscores
+                emp_id = parts[-2].upper() # Employee ID is second to last part
+                # The last part is the sample number with extension, which we don't need for name/id
             except ValueError:
                 Logger(f"[WARN] Skipping unrecognised filename format: {file}")
                 continue
@@ -492,24 +544,42 @@ class FaceApp(App):
             img_path = self._known_faces_dir / file
             img_gray = cv2.imread(str(img_path), cv2.IMREAD_GRAYSCALE)
             if img_gray is None:
+                Logger(f"[WARN] Could not read image: {img_path}. Skipping.")
                 continue # Skip if image cannot be read.
 
             # Resize image to a consistent size (200x200) for training.
+            # This is crucial for recognizer performance.
             img_resized = cv2.resize(img_gray, (200, 200))
             images.append(img_resized)
-            labels.append(label_id)
-            # Map the integer label ID to the actual name and employee ID.
-            label_map[label_id] = (name, emp_id)
-            label_id += 1
+            
+            # Assign a new label_id if this emp_id is not already in the map
+            # This ensures that each unique emp_id gets a unique integer label
+            found_existing_label = False
+            for existing_label, (existing_name, existing_emp_id) in label_map.items():
+                if existing_emp_id == emp_id:
+                    labels.append(existing_label)
+                    found_existing_label = True
+                    break
+            
+            if not found_existing_label:
+                labels.append(label_id)
+                label_map[label_id] = (name, emp_id)
+                label_id += 1
+
 
         # Create the LBPH face recognizer.
         recogniser = cv2.face.LBPHFaceRecognizer_create()
-        if images:
-            # Train the recognizer if there are images available.
-            recogniser.train(images, np.array(labels))
-            Logger(
-                f"[INFO] Trained recogniser on {len(images)} images across {len(label_map)} identities."
-            )
+        if images and labels: # Ensure both lists are not empty
+            try:
+                # Train the recognizer if there are images available.
+                recogniser.train(images, np.array(labels))
+                Logger(
+                    f"[INFO] Trained recogniser on {len(images)} images across {len(label_map)} identities."
+                )
+            except cv2.error as e:
+                Logger(f"[ERROR] OpenCV error during recognizer training: {e}. This might indicate insufficient samples or corrupted data.")
+                recogniser = cv2.face.LBPHFaceRecognizer_create() # Re-initialize empty recognizer
+                label_map = {} # Clear label map
         else:
             Logger("[INFO] No images found – recogniser disabled until first registration.")
 
@@ -546,6 +616,7 @@ class FaceApp(App):
             email = email_input.text.strip()
             if not (name and emp_id and email and "@" in email):
                 Logger("[WARN] Invalid input for registration.")
+                self._show_status_message("Please fill all fields correctly!", 2, (1, 0, 0, 1))
                 return
 
             self._save_email(emp_id, email) # Save email for future OTPs
@@ -577,6 +648,7 @@ class FaceApp(App):
             emp_id = emp_input.text.strip().upper()
             if not emp_id:
                 Logger("[WARN] Employee ID cannot be empty for update.")
+                self._show_status_message("Employee ID cannot be empty!", 2, (1, 0, 0, 1))
                 return
             email = self.user_emails.get(emp_id)
             name_existing: Optional[str] = None
@@ -585,6 +657,12 @@ class FaceApp(App):
                 if eid == emp_id:
                     name_existing = nm
                     break
+            
+            if name_existing is None:
+                Logger(f"[WARN] Employee ID {emp_id} not found in known faces. Cannot update.")
+                self._show_status_message("Employee ID not found. Please register first.", 3, (1, 0, 0, 1))
+                popup.dismiss()
+                return
 
             popup.dismiss()
             if email:
@@ -603,7 +681,7 @@ class FaceApp(App):
     def _email_registration_flow(self, emp_id: str, name: Optional[str]):
         """Initiates the flow to register an email for an existing employee ID."""
         content = BoxLayout(orientation="vertical", spacing=dp(10), padding=dp(10))
-        content.add_widget(Label(text="Email not found. Enter your email:"))
+        content.add_widget(Label(text="Email not found for this ID. Please enter your email:"))
         email_input = TextInput(hint_text="Email", size_hint=(1, None), height=dp(40))
         submit_btn = Button(text="Submit", size_hint=(1, None), height=dp(40))
         content.add_widget(email_input)
@@ -619,17 +697,21 @@ class FaceApp(App):
                 self._send_otp_flow(emp_id, email, name) # Proceed to OTP.
             else:
                 Logger("[WARN] Invalid email format during registration.")
+                self._show_status_message("Invalid email format!", 2, (1, 0, 0, 1))
+
 
         submit_btn.bind(on_press=_submit)
 
-    def _send_otp_flow(self, emp_id: str, email: str, name: Optional[str] = None):
+    def _send_otp_flow(self, emp_id: str, email: str, name: Optional[str]):
         """Manages the OTP sending process, showing a sending popup."""
         # Generate & store 6-digit OTP.
         otp = self._generate_otp()
         self.otp_storage[emp_id] = otp
         self.pending_names[emp_id] = name # Store name temporarily for capture after OTP.
 
-        sending_popup = self._show_popup("Sending OTP", Label(text="Sending OTP email…"), size=(0.7, 0.4))
+        # Use a temporary label for the sending message
+        sending_message_label = Label(text="Sending OTP email…", size_hint=(1, 1), halign='center', valign='middle')
+        sending_popup = self._show_popup("Sending OTP", BoxLayout(children=[sending_message_label]), size=(0.7, 0.4))
 
         def _send_thread():  # noqa: ANN001
             """Sends the OTP email in a separate thread to avoid freezing UI."""
@@ -639,7 +721,7 @@ class FaceApp(App):
                 Clock.schedule_once(lambda _dt: self._otp_verify_popup(emp_id, email)) # Show verification popup.
             else:
                 Clock.schedule_once(
-                    lambda _dt: self._show_popup("Error", Label(text="Failed to send email. Please check console for details."), size=(0.7, 0.4))
+                    lambda _dt: self._show_popup("Error", Label(text="Failed to send email. Please check console for details.\nEnsure app is allowed in Google security settings."), size=(0.7, 0.4))
                 )
 
         threading.Thread(target=_send_thread, daemon=True, name="SendOTPThread").start()
@@ -647,8 +729,8 @@ class FaceApp(App):
     def _otp_verify_popup(self, emp_id: str, email: str):
         """Shows the popup for OTP verification."""
         content = BoxLayout(orientation="vertical", spacing=dp(10), padding=dp(10))
-        content.add_widget(Label(text=f"OTP sent to {email}"))
-        otp_input = TextInput(hint_text="6-digit OTP", size_hint=(1, None), height=dp(40))
+        content.add_widget(Label(text=f"OTP sent to {email}\nEnter the 6-digit OTP:"))
+        otp_input = TextInput(hint_text="6-digit OTP", input_type="number", size_hint=(1, None), height=dp(40)) # Input type for numbers
         verify_btn = Button(text="Verify", size_hint=(1, None), height=dp(40))
         resend_btn = Button(text="Resend", size_hint=(1, None), height=dp(40))
         content.add_widget(otp_input)
@@ -671,16 +753,21 @@ class FaceApp(App):
             else:
                 otp_input.text = ""
                 otp_input.hint_text = "Incorrect – try again"
+                self._show_status_message("Incorrect OTP. Try again!", 2, (1, 0, 0, 1))
                 Logger("[WARN] Incorrect OTP entered.")
 
         def _resend(_):  # noqa: ANN001
             """Resends a new OTP."""
-            new_otp = self._generate_otp()
-            self.otp_storage[emp_id] = new_otp
-            self._send_otp_email(email, new_otp) # Send new OTP email.
-            otp_input.text = ""
-            otp_input.hint_text = "New OTP sent"
-            Logger("[INFO] Resent OTP.")
+            # Clear current OTP and pending name, then restart the OTP flow.
+            if emp_id in self.otp_storage:
+                del self.otp_storage[emp_id]
+            if emp_id in self.pending_names:
+                del self.pending_names[emp_id]
+            
+            popup.dismiss()
+            self._show_status_message("Resending OTP...", 2, (1, 1, 0, 1))
+            # Restart the send OTP flow to regenerate and send new OTP
+            self._send_otp_flow(emp_id, email, self.pending_names.get(emp_id)) # Use pending name if it exists
 
         verify_btn.bind(on_press=_verify)
         resend_btn.bind(on_press=_resend)
@@ -703,14 +790,15 @@ class FaceApp(App):
         """
         # Resolve name for existing employee ID if not supplied (e.g., during update flow).
         if name is None:
+            # Iterate through label_map to find the name associated with emp_id
             for _lbl, (nm, eid) in self.label_map.items():
                 if eid == emp_id:
                     name = nm
                     break
         if name is None:
-            Logger("[ERROR] No existing face found for this ID – please register first.")
-            Clock.schedule_once(lambda _dt: self._show_popup("Error", Label(text="No existing face found for this ID. Please register first."), size=(0.7, 0.4)))
-            return
+            Logger("[ERROR] No name found for this Employee ID. This should not happen in update flow if checks pass.")
+            Clock.schedule_once(lambda _dt: self._show_popup("Error", Label(text="Internal error: Employee name not found for capture."), size=(0.7, 0.4)))
+            return # Exit if name is still None
 
         # Determine target number of samples (10 for new, 5 for update).
         count_target = sample_count if sample_count else SAMPLES_PER_USER
@@ -726,18 +814,21 @@ class FaceApp(App):
 
         # --- Visual Countdown before capture starts ---
         for i in range(3, 0, -1):
-            self._show_status_message(f"Capturing in {i}...", 1, (1, 1, 0, 1)) # Yellow countdown.
+            # Schedule on the main thread for UI update
+            Clock.schedule_once(lambda _dt, msg=f"Capturing in {i}...": self._show_status_message(msg, 1, (1, 1, 0, 1)), 0)
             time.sleep(1) # Pause for 1 second.
-        self._show_status_message("Capturing now!", 1, (0, 1, 0, 1)) # Green "Capturing now!".
+        Clock.schedule_once(lambda _dt: self._show_status_message("Capturing now!", 1, (0, 1, 0, 1)), 0) # Green "Capturing now!".
         time.sleep(0.5) # Small pause before actual capture loop.
 
         # Loop to capture the target number of samples.
         while collected < count_target and not self._stop_event.is_set():
             # Get the latest frame from the queue. Non-blocking to keep camera thread flowing.
             frame = None
-            while not self.frame_queue.empty():
+            try:
                 frame = self.frame_queue.get_nowait()
-            
+            except queue.Empty:
+                pass # No frame available yet
+
             if frame is None:
                 time.sleep(0.01) # Small sleep if no frame available to prevent busy-waiting.
                 continue
@@ -750,6 +841,12 @@ class FaceApp(App):
                 # Take the first detected face (assuming one person is registering).
                 x, y, w, h = faces[0] 
                 face_img = gray[y : y + h, x : x + w]
+                # Check if face_img is empty or too small (e.g., if detection was faulty)
+                if face_img.size == 0 or w < 50 or h < 50: # Minimum size for a valid face
+                    self._show_status_message("Face too small or incomplete. Adjust position.", 0.5, (1, 0, 0, 1))
+                    time.sleep(0.1)
+                    continue
+
                 # Resize the captured face image to 200x200 pixels.
                 face_img_resized = cv2.resize(face_img, (200, 200))
                 # Construct a unique filename for the captured image.
@@ -763,12 +860,12 @@ class FaceApp(App):
                 Clock.schedule_once(lambda _dt: self._flash_image_widget(), 0)
 
                 # Update status message with capture progress.
-                self._show_status_message(f"Captured {collected}/{count_target} photos...", 0.5, (1, 1, 0, 1))
+                Clock.schedule_once(lambda _dt, msg=f"Captured {collected}/{count_target} photos...": self._show_status_message(msg, 0.5, (1, 1, 0, 1)), 0)
                 # Small delay to allow for head movement between samples for better training data.
                 time.sleep(0.2)
             else:
                 # If no face is detected, prompt the user to adjust position.
-                self._show_status_message("No face detected. Please position yourself.", 0.5, (1, 0, 0, 1)) # Red warning.
+                Clock.schedule_once(lambda _dt: self._show_status_message("No face detected. Please position yourself.", 0.5, (1, 0, 0, 1)), 0) # Red warning.
                 time.sleep(0.1) # Small delay.
 
 
@@ -791,7 +888,11 @@ class FaceApp(App):
         """Handles a successful face recognition event, playing sound and submitting attendance."""
         Logger(f"[INFO] Recognised {name} ({emp_id}) – submitting attendance…")
         if self.sound:
-            self.sound.play() # Play success sound.
+            try:
+                self.sound.play() # Play success sound.
+            except Exception as e:
+                Logger(f"[WARN] Failed to play sound: {e}")
+
         # Submit to Google Form in a new thread to prevent UI freezing.
         threading.Thread(
             target=self._submit_to_google_form,
@@ -871,13 +972,21 @@ class FaceApp(App):
         msg.attach(MIMEText(body_html, "html"))
         try:
             with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-                server.starttls()
-                server.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
-                server.send_message(msg)
+                server.starttls() # Enable Transport Layer Security
+                server.login(EMAIL_ADDRESS, EMAIL_PASSWORD) # Log in to SMTP server
+                server.send_message(msg) # Send the email
             Logger(f"[INFO] Sent OTP to {email}")
             return True
+        except smtplib.SMTPAuthenticationError as exc:
+            Logger(f"[ERROR] SMTP authentication error: {exc}. "
+                   "Check EMAIL_ADDRESS and EMAIL_PASSWORD (especially for App Passwords for Gmail).")
+            return False
+        except smtplib.SMTPConnectError as exc:
+            Logger(f"[ERROR] SMTP connection error: {exc}. "
+                   "Check SMTP_SERVER and SMTP_PORT, and network connectivity.")
+            return False
         except Exception as exc:
-            Logger(f"[ERROR] SMTP error when sending OTP to {email}: {exc}")
+            Logger(f"[ERROR] General SMTP error when sending OTP to {email}: {exc}")
             return False
 
     # ------------------------------------------------------------------
@@ -893,13 +1002,19 @@ class FaceApp(App):
                     return json.load(f)
             except json.JSONDecodeError as exc:
                 Logger(f"[WARN] Invalid JSON in email storage: {exc}; starting fresh.")
+                # It's good practice to back up or rename the corrupted file
+                # to prevent continuous errors if it's indeed corrupted.
+                # For this example, we'll just log and return empty.
         return {}
 
     def _save_email(self, emp_id: str, email: str) -> None:
         """Saves a user's email address to the JSON file."""
         self.user_emails[emp_id] = email
-        with (self._known_faces_dir / "user_emails.json").open("w", encoding="utf-8") as f:
-            json.dump(self.user_emails, f, indent=2)
+        try:
+            with (self._known_faces_dir / "user_emails.json").open("w", encoding="utf-8") as f:
+                json.dump(self.user_emails, f, indent=2)
+        except IOError as exc:
+            Logger(f"[ERROR] Failed to save user emails to file: {exc}")
 
     # ------------------------------------------------------------------
     # Overlay helpers
@@ -915,7 +1030,11 @@ class FaceApp(App):
 
         # Desired size for the tick icon (e.g., 25x25 pixels)
         tick_icon_size = 25 # pixels
-        icon = cv2.resize(self.tick_icon, (tick_icon_size, tick_icon_size), interpolation=cv2.INTER_AREA)
+        try:
+            icon = cv2.resize(self.tick_icon, (tick_icon_size, tick_icon_size), interpolation=cv2.INTER_AREA)
+        except cv2.error as e:
+            Logger(f"[ERROR] Failed to resize tick icon: {e}. Skipping overlay.")
+            return
 
         # Calculate position for the tick mark
         # Place it slightly to the right of the text, vertically centered with the text.
@@ -943,13 +1062,16 @@ class FaceApp(App):
         # Check if the ROI is valid (i.e., not out of bounds causing a slice of different size)
         if roi.shape[0] == tick_icon_size and roi.shape[1] == tick_icon_size:
             if icon.shape[2] == 4:  # RGBA image – use alpha channel for blending
+                # Split icon into B, G, R, Alpha channels
                 b, g, r, a = cv2.split(icon)
+                # Create a 3-channel mask from the alpha channel
                 mask = cv2.merge((a, a, a)) / 255.0
+                # Blend the ROI with the icon using the mask
                 blended = (roi * (1 - mask) + cv2.merge((b, g, r)) * mask).astype(np.uint8)
                 frame[icon_y_start : icon_y_start + tick_icon_size, icon_x_start : icon_x_start + tick_icon_size] = blended
             else:
                 Logger("[WARN] Tick icon is not RGBA; cannot perform alpha blending for tick next to name. Simple copy used.")
-                # Fallback: simple copy if no alpha channel
+                # Fallback: simple copy if no alpha channel. Ensure it's BGR if original is not.
                 icon_to_place = cv2.cvtColor(icon, cv2.COLOR_BGRA2BGR) if icon.shape[2] == 4 else icon
                 frame[icon_y_start : icon_y_start + tick_icon_size, icon_x_start : icon_x_start + tick_icon_size] = icon_to_place
         else:
@@ -961,4 +1083,15 @@ class FaceApp(App):
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    FaceApp().run()
+    try:
+        FaceApp().run()
+    except Exception as e:
+        # This will catch any unhandled exceptions during Kivy app startup or main loop
+        # and print them to the console, which is crucial for debugging crashes on PC.
+        import traceback
+        Logger(f"[CRITICAL ERROR] Application crashed: {e}")
+        Logger("--- Full Traceback ---")
+        traceback.print_exc()
+        Logger("----------------------")
+        # You might want to display a simple error popup here too for the user,
+        # but for debugging, console output is primary.

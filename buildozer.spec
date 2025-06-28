@@ -21,7 +21,7 @@ source.include_exts = py,png,jpg,mp3,json,xml
 
 # (list) Application requirements
 # comma separated e.g. requirements = sqlite3,kivy
-requirements = python3,kivy,opencv,requests
+requirements = python3,kivy==2.0.0,opencv,requests
 
 # (str) The category of the application:
 # Available categories are:

@@ -3,45 +3,25 @@ name: Build Android APK
 on:
   push:
     branches: [ main ]
-  workflow_dispatch: # Allows manual triggering from GitHub UI
+  workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-latest # GitHub-hosted runner with Ubuntu
-    timeout-minutes: 60 # Set a timeout for the entire job (e.g., 60 minutes)
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4 # Action to checkout your repository code
-
-      - name: Cache Buildozer and Android SDK directories
-        # This step caches the directories used by Buildozer to speed up subsequent builds.
-        # It's crucial for faster iterations.
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.buildozer
-            ~/.android
-            ~/.gradle # Cache Gradle directory as Buildozer uses Gradle for Android builds
-          key: ${{ runner.os }}-buildozer-${{ hashFiles('buildozer.spec') }} # Cache key based on OS and buildozer.spec content
-          restore-keys: |
-            ${{ runner.os }}-buildozer- # Fallback key for partial matches
+        uses: actions/checkout@v4
 
       - name: Build APK using Buildozer
-        # This action handles Python setup, Buildozer installation,
-        # Android SDK/NDK download, license acceptance, and the build process
-        # based on your buildozer.spec file.
         uses: ArtemSBulgakov/buildozer-action@v1
-        id: buildozer # Assign an ID to this step to reference its outputs
+        id: buildozer
         with:
-          command: buildozer android debug # The Buildozer command to build a debug APK for Android
-          buildozer_version: stable # Use the latest stable version of Buildozer
+          command: buildozer android debug
+          buildozer_version: stable
 
-      - name: Upload APK artifact
-        # This step uploads the generated APK file as a workflow artifact.
-        # You can download this from the GitHub Actions run summary.
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: myapp-debug-apk # Name of the artifact
-          path: ${{ steps.buildozer.outputs.filename }} # Path to the generated APK from the buildozer action
-          retention-days: 7 # How long the artifact will be stored on GitHub (7 days)
+          name: myapp-debug-apk
+          path: ${{ steps.buildozer.outputs.filename }}

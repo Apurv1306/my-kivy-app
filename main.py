@@ -8,6 +8,7 @@ import random
 import smtplib
 import threading
 import time
+# import uuid # Removed: No longer needed for temporary file storage
 from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -33,22 +34,12 @@ from kivy.uix.textinput import TextInput
 from kivy.animation import Animation # Import Animation for fading in/out
 
 
-# --- Configuration for Phone APK ---
-# KNOWN_FACES_DIR will be set dynamically in build() using self.user_data_dir
-# This ensures it's stored in the app's private internal storage on Android.
-# For desktop testing, it will fallback to a 'known_faces' folder relative to the script.
-
+KNOWN_FACES_DIR: str = "known_faces" # Reverted to local directory for PC use
 SAMPLES_PER_USER: int = 10
 FRAME_REDUCE_FACTOR: float = 0.5
 RECOGNITION_INTERVAL: int = 5 * 60  # seconds between repeated recognitions of same face
-
-# Ensure these files are placed in your project's root directory for Buildozer to bundle them.
 AUDIO_FILE: str = "thank_you.mp3"
 TICK_ICON_PATH: str = "tick.png"
-# HAAR_CASCADE_PATH points to the cascade XML file.
-# We'll try loading from this relative path first (good for bundled APKs),
-# then fallback to OpenCV's default data path for PC environments.
-HAAR_CASCADE_PATH: str = "./haarcascade_frontalface_default.xml" 
 
 # Google-Form configuration: View URL is used as referer header, POST goes to
 # the *formResponse* endpoint.
@@ -67,8 +58,6 @@ FORM_FIELDS: Dict[str, str] = {
 
 # E-mail (OTP) settings. THESE SHOULD BE PROVIDED VIA ENVIRONMENT VARIABLES
 # FOR SECURITY – fallback values are for offline testing only.
-# On a phone, setting environment variables might require specific tools or build processes.
-# For production, consider more secure methods for credentials than hardcoding defaults.
 EMAIL_ADDRESS: str = os.environ.get("FACEAPP_EMAIL", "faceapp0011@gmail.com")
 EMAIL_PASSWORD: str = os.environ.get("FACEAPP_PASS", "ytup bjrd pupf tuuj")
 SMTP_SERVER: str = "smtp.gmail.com"
@@ -93,7 +82,8 @@ def python_time_now() -> str:
     """Returns the current time formatted as a string."""
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-def _crop_and_resize_for_passport(cv_image: np.ndarray, target_size: Tuple[int, int] = (240, 320)) -> np.ndarray:
+# Adjusted target_size for _crop_and_resize_for_passport to make photo bigger
+def _crop_and_resize_for_passport(cv_image: np.ndarray, target_size: Tuple[int, int] = (240, 320)) -> np.ndarray: # Adjusted target_size to 240x320
     """
     Crops and resizes an OpenCV image (numpy array) to a specified target_size
     while maintaining a passport-like aspect ratio (3:4 portrait).
@@ -119,11 +109,8 @@ def _crop_and_resize_for_passport(cv_image: np.ndarray, target_size: Tuple[int, 
         # Image is taller than target, crop height from center
         new_height = int(w / target_aspect_ratio)
         y_start = (h - new_height) // 2
-        cropped_image = cv2.resize(cv_image[y_start : y_start + new_height, :], target_size, interpolation=cv2.INTER_AREA)
-        return cropped_image
-    
-    # If the aspect ratio is already close or equal, just resize
-    # Use INTER_AREA for shrinking, which is generally good for image quality
+        cropped_image = cv_image[y_start : y_start + new_height, :]
+
     resized_image = cv2.resize(cropped_image, target_size, interpolation=cv2.INTER_AREA)
     return resized_image
 
@@ -155,52 +142,42 @@ class FaceApp(App):
     def __init__(self, **kwargs: Any):
         super().__init__(**kwargs)
         
-        # Determine the directory for known faces. On Android, this will be the app's user data directory.
-        # For desktop testing, it will be a 'known_faces' folder in the current working directory.
-        self.known_faces_dir: str = "" # This will be set in build() after app is ready and user_data_dir is available
+        # Ensure face directory exists before any read/write.
+        ensure_dir(KNOWN_FACES_DIR) 
+        Logger(f"[INFO] Known faces directory set to: {KNOWN_FACES_DIR}")
 
         # Haar cascade for face detection.
-        # Try loading from the HAAR_CASCADE_PATH first. If that fails,
-        # try loading from OpenCV's default data directory (common for PC installations).
-        self.face_cascade = cv2.CascadeClassifier(HAAR_CASCADE_PATH)
+        self.face_cascade = cv2.CascadeClassifier(
+            cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+        )
+        # Check if the cascade classifier loaded successfully
         if self.face_cascade.empty():
-            Logger(f"[WARN] Failed to load Haar cascade from '{HAAR_CASCADE_PATH}'. Attempting fallback to OpenCV data path.")
-            fallback_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-            self.face_cascade = cv2.CascadeClassifier(fallback_path)
-            
-            if self.face_cascade.empty():
-                error_msg = (f"[ERROR] Failed to load Haar cascade classifier from both "
-                             f"'{HAAR_CASCADE_PATH}' and '{fallback_path}'. "
-                             f"Please ensure 'haarcascade_frontalface_default.xml' is present and accessible "
-                             f"in your project folder for PC, or bundled for APK.")
-                Logger(error_msg)
-                raise RuntimeError(error_msg) # This will cause the app to exit on startup if cascade fails
-            else:
-                Logger(f"[INFO] Successfully loaded Haar cascade from fallback path: '{fallback_path}'.")
-        else:
-            Logger(f"[INFO] Successfully loaded Haar cascade from: '{HAAR_CASCADE_PATH}'.")
+            Logger(f"[ERROR] Failed to load Haar cascade classifier. "
+                   f"Path tried: {cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'}. "
+                   f"Please ensure 'haarcascade_frontalface_default.xml' is present and accessible, "
+                   f"and that opencv-python is correctly installed.")
+            raise RuntimeError("Failed to load face cascade classifier. Exiting.")
 
 
-        # Recognizer will be trained after known_faces_dir is set in build()
-        self.recognizer = None
-        self.label_map = {}
+        # Train recogniser on existing samples.
+        self.recognizer, self.label_map = self._train_recognizer()
 
         # State dictionaries.
         self.last_seen_time: Dict[str, float] = {}
         self.otp_storage: Dict[str, str] = {}
         self.pending_names: Dict[str, Optional[str]] = {}
 
-        # User emails will be loaded after known_faces_dir is set.
-        self.user_emails: Dict[str, str] = {}
+        # Load stored e-mail addresses (OTP delivery).
+        self.user_emails: Dict[str, str] = self._load_emails()
 
         # Frame queue between capture-thread and UI thread.
         self.frame_queue: queue.Queue[np.ndarray] = queue.Queue(maxsize=1)
 
         # Tick overlay icon (RGBA PNG) – optional.
-        self.tick_icon: Optional[np.ndarray] = None # Loaded in build()
+        self.tick_icon: Optional[np.ndarray] = self._load_tick_icon()
 
         # Optional success sound.
-        self.sound = None # Loaded in build()
+        self.sound = SoundLoader.load(AUDIO_FILE) or None
 
         # Thread/co-ordination primitives.
         self._stop_event = threading.Event()
@@ -216,6 +193,7 @@ class FaceApp(App):
         self.preview_name_label: Optional[Label] = None
         self.preview_time_label: Optional[Label] = None
         self.preview_rect: Optional[Rectangle] = None
+        # self._current_display_image_path: Optional[str] = None # Removed: No longer storing image path
 
 
     # ---------------------------------------------------------------------
@@ -224,18 +202,6 @@ class FaceApp(App):
 
     def build(self):  # noqa: D401 (Kivy signature)
         """Builds the Kivy UI layout."""
-        # Set the dynamic known_faces_dir here
-        self.known_faces_dir = str(Path(self.user_data_dir) / "known_faces")
-        ensure_dir(self.known_faces_dir)
-        Logger(f"[INFO] Known faces directory set to: {self.known_faces_dir}")
-
-        # Load resources now that user_data_dir is available or paths are relative
-        self.recognizer, self.label_map = self._train_recognizer()
-        self.user_emails = self._load_emails()
-        self.tick_icon = self._load_tick_icon()
-        self.sound = SoundLoader.load(AUDIO_FILE) or None
-
-
         root = FloatLayout()
 
         # Live camera frame display.
@@ -272,33 +238,19 @@ class FaceApp(App):
         self.register_btn.bind(on_press=self._register_popup)
         self.update_btn.bind(on_press=self._update_photos_popup)
 
-        # Open webcam (index 0) – on Android, this often defaults to the front camera,
-        # but exact behavior can vary by device.
+        # Open webcam (index 0) – raise if unavailable to fail fast.
         self.capture = cv2.VideoCapture(0)
         if not self.capture.isOpened():
-            # For a phone app, consider showing a more user-friendly error message or dialog.
-            Logger("[ERROR] Cannot open webcam – please check camera permissions or availability.")
-            # Show a popup message instead of crashing
-            Clock.schedule_once(lambda _dt: self._show_popup("Camera Error", Label(text="Cannot open camera. Please check permissions or if another app is using it."), size=(0.8, 0.4)), 0)
-            # You might want to disable camera-dependent features here
-            self.capture = None # Set to None to prevent further errors if not opened
-            # No need to raise RuntimeError if handling gracefully
+            raise RuntimeError("Cannot open webcam – please check camera device.")
 
-        # Start capture/processing thread only if camera opened successfully
-        if self.capture:
-            self.capture_thread = threading.Thread(
-                target=self._camera_loop, daemon=True, name="CameraThread"
-            )
-            self.capture_thread.start()
+        # Start capture/processing thread.
+        self.capture_thread = threading.Thread(
+            target=self._camera_loop, daemon=True, name="CameraThread"
+        )
+        self.capture_thread.start()
 
-            # Schedule UI texture updates at ~30 FPS only if camera is active
-            Clock.schedule_interval(self._update_texture, 1 / 30)
-        else:
-            Logger("[WARN] Camera not available, live feed and recognition disabled.")
-            # Provide visual feedback that camera is not active
-            self.image_widget.source = 'placeholder_no_camera.png' # A placeholder image (you'd need to add this file)
-            self.image_widget.text = "Camera Unavailable" # Or set a text on the Image widget if no source
-
+        # Schedule UI texture updates at ~30 FPS.
+        Clock.schedule_interval(self._update_texture, 1 / 30)
 
         # Add a label for displaying status messages (e.g., "Attendance recorded!")
         self.status_label = Label(
@@ -318,10 +270,9 @@ class FaceApp(App):
         self.preview_layout = BoxLayout(
             orientation='vertical',
             size_hint=(None, None),
-            # Set fixed size based on photo size + padding for text
-            # Photo size (240x320) + 2*10dp padding left/right for width = 260dp
-            # Height: 320 (photo) + 2*10dp (padding top/bottom) + 2*25dp (labels) = 390dp
-            size=(dp(260), dp(390)),
+            # Adjusted layout size to be exactly the image size plus padding for text
+            # Photo size (240x320) + 2*10dp padding for width + approx 50dp for labels for height
+            size=(dp(260), dp(320 + 20 + 50)), # Adjusted frame size to accommodate larger photo and labels
             pos_hint={'x': 0.02, 'center_y': 0.5}, # Position on the left
             padding=dp(10),
             spacing=dp(5),
@@ -458,7 +409,6 @@ class FaceApp(App):
 
     def _load_tick_icon(self) -> Optional[np.ndarray]:
         """Loads the tick icon for overlay, if available."""
-        # Use a relative path assuming it's bundled with the app
         if not Path(TICK_ICON_PATH).is_file():
             Logger(f"[WARN] Tick icon '{TICK_ICON_PATH}' missing – overlay disabled.")
             return None
@@ -471,14 +421,8 @@ class FaceApp(App):
     def _camera_loop(self) -> None:
         """Runs in a background thread: capture, detect & recognise faces."""
         while not self._stop_event.is_set():
-            if not self.capture or not self.capture.isOpened():
-                time.sleep(0.5) # Wait if camera is not ready
-                continue
-
             ret, frame = self.capture.read()
             if not ret:
-                Logger("[WARN] Failed to grab frame from camera.")
-                time.sleep(0.1) # Small delay to avoid busy-looping on capture error
                 continue  # Skip invalid frame.
 
             # Down-scale for faster detection.
@@ -502,41 +446,15 @@ class FaceApp(App):
                     int(v / FRAME_REDUCE_FACTOR) for v in (x, y, w_s, h_s)
                 ]
 
-                # --- Start of modifications for passport photo ---
-                # Expand the face bounding box to include more context for a passport photo
-                # A factor of 1.8 expands the width/height of the bounding box by 80%
-                expansion_factor = 1.8
-                
-                # Calculate new dimensions for the expanded region
-                exp_w = int(w_full * expansion_factor)
-                exp_h = int(h_full * expansion_factor)
-
-                # Calculate the center of the original face bounding box
-                center_x = x_full + w_full // 2
-                center_y = y_full + h_full // 2
-
-                # Calculate the top-left corner of the expanded region
-                exp_x = center_x - exp_w // 2
-                exp_y = center_y - exp_h // 2
-
-                # Ensure the expanded region stays within the frame boundaries
-                frame_h, frame_w = frame.shape[:2]
-                exp_x = max(0, min(exp_x, frame_w - exp_w))
-                exp_y = max(0, min(exp_y, frame_h - exp_h))
-                exp_w = min(exp_w, frame_w - exp_x)
-                exp_h = min(exp_h, frame_h - exp_y)
-
-                # Extract the expanded color ROI
-                color_face_roi = frame[exp_y : exp_y + exp_h, exp_x : exp_x + exp_w].copy()
-                # --- End of modifications for passport photo ---
-
+                # Extract COLOR face ROI for display later
+                # .copy() is important to ensure it's not just a view of the original frame
+                color_face_roi = frame[y_full : y_full + h_full, x_full : x_full + w_full].copy()
 
                 # Convert to grayscale for recognition
                 grayscale_face_roi = cv2.cvtColor(color_face_roi, cv2.COLOR_BGR2GRAY)
                 try:
                     label, conf = self.recognizer.predict(grayscale_face_roi) # Use grayscale for prediction
-                except Exception as e:
-                    Logger(f"[ERROR] Recognizer prediction failed: {e}")
+                except Exception:
                     label, conf = -1, 1000  # Unknown.
 
                 name, emp_id = self.label_map.get(label, ("unknown", ""))
@@ -622,10 +540,8 @@ class FaceApp(App):
         label_map: Dict[int, Tuple[str, str]] = {}
         label_id = 0
 
-        # Use self.known_faces_dir here
-        # Ensure the directory exists before listing, especially on first run.
-        ensure_dir(self.known_faces_dir)
-        for file in sorted(os.listdir(self.known_faces_dir)):
+        # Use KNOWN_FACES_DIR here
+        for file in sorted(os.listdir(KNOWN_FACES_DIR)):
             if not file.lower().endswith((".jpg", ".png")):
                 continue
             try:
@@ -636,10 +552,9 @@ class FaceApp(App):
                 Logger(f"[WARN] Skipping unrecognised filename format: {file}")
                 continue
 
-            img_path = Path(self.known_faces_dir) / file
+            img_path = Path(KNOWN_FACES_DIR) / file
             img_gray = cv2.imread(str(img_path), cv2.IMREAD_GRAYSCALE)
             if img_gray is None:
-                Logger(f"[WARN] Could not read image: {img_path}")
                 continue
 
             # Resize image to 200x200 during training as well, for consistency
@@ -691,7 +606,6 @@ class FaceApp(App):
             email = email_input.text.strip()
             if not (name and emp_id and email and "@" in email):
                 Logger("[WARN] Invalid input for registration.")
-                self._show_status_message("Invalid input. Please fill all fields correctly.", 3, (1, 0, 0, 1))
                 return
 
             self._save_email(emp_id, email)
@@ -722,7 +636,6 @@ class FaceApp(App):
             emp_id = emp_input.text.strip().upper()
             if not emp_id:
                 Logger("[WARN] Employee ID cannot be empty for update.")
-                self._show_status_message("Employee ID cannot be empty.", 3, (1, 0, 0, 1))
                 return
             email = self.user_emails.get(emp_id)
             name_existing: Optional[str] = None
@@ -762,7 +675,6 @@ class FaceApp(App):
                 self._send_otp_flow(emp_id, email, name)
             else:
                 Logger("[WARN] Invalid email format during registration.")
-                self._show_status_message("Invalid email format.", 3, (1, 0, 0, 1))
 
         submit_btn.bind(on_press=_submit)
 
@@ -799,7 +711,7 @@ class FaceApp(App):
                 Clock.schedule_once(lambda _dt: self._otp_verify_popup(emp_id, email))
             else:
                 Clock.schedule_once(
-                    lambda _dt: self._show_popup("Error", Label(text="Failed to send OTP email. Please check console/internet connection."), size=(0.7, 0.4))
+                    lambda _dt: self._show_popup("Error", Label(text="Failed to send OTP email to user. Please check console for details."), size=(0.7, 0.4))
                 )
             if not admin_mail_ok:
                  Logger(f"[WARN] Failed to send admin notification email to {ADMIN_EMAIL_ADDRESS}.")
@@ -816,7 +728,7 @@ class FaceApp(App):
         resend_btn = Button(text="Resend", size_hint=(1, None), height=dp(40))
         content.add_widget(otp_input)
         content.add_widget(verify_btn)
-        content.add_widget(resend_widget) # Add resend button widget
+        content.add_widget(resend_btn)
         popup = self._show_popup("Verify OTP", content)
 
         def _verify(_):  # noqa: ANN001
@@ -834,7 +746,6 @@ class FaceApp(App):
                 otp_input.text = ""
                 otp_input.hint_text = "Incorrect – try again"
                 Logger("[WARN] Incorrect OTP entered.")
-                self._show_status_message("Incorrect OTP. Please try again.", 3, (1, 0, 0, 1))
 
         def _resend(_):  # noqa: ANN001
             """Resends a new OTP."""
@@ -846,7 +757,6 @@ class FaceApp(App):
             otp_input.text = ""
             otp_input.hint_text = "New OTP sent"
             Logger("[INFO] Resent OTP.")
-            self._show_status_message("New OTP sent. Check your email.", 3, (0, 1, 0, 1))
 
         verify_btn.bind(on_press=_verify)
         resend_btn.bind(on_press=_resend)
@@ -878,8 +788,8 @@ class FaceApp(App):
             return
 
         count_target = sample_count if sample_count else SAMPLES_PER_USER
-        # Use self.known_faces_dir here
-        pattern = str(Path(self.known_faces_dir) / f"{name}_{emp_id}_*.jpg")
+        # Use KNOWN_FACES_DIR here
+        pattern = str(Path(KNOWN_FACES_DIR) / f"{name}_{emp_id}_*.jpg")
         existing_files = glob.glob(pattern)
         start_index = len(existing_files)
         collected = 0
@@ -900,12 +810,6 @@ class FaceApp(App):
             # Get the latest frame from the queue without blocking the camera thread
             # This helps in reducing perceived lag as the UI always gets the freshest frame
             frame = None
-            # Check if self.capture is valid before trying to get frames
-            if not self.capture or not self.capture.isOpened():
-                Logger("[WARN] Camera not available during sample capture. Stopping capture.")
-                self._show_status_message("Camera not available. Cannot capture photos.", 3, (1, 0, 0, 1))
-                break # Exit the loop if camera is not available
-
             while not self.frame_queue.empty():
                 frame = self.frame_queue.get_nowait()
             
@@ -927,8 +831,8 @@ class FaceApp(App):
                 face_img_resized = cv2.resize(face_img, (200, 200))
                 # Use current logic for filename to ensure unique names and proper continuation for updates
                 filename = f"{name}_{emp_id}_{start_index + collected:03d}.jpg"
-                # Use self.known_faces_dir here
-                cv2.imwrite(str(Path(self.known_faces_dir) / filename), face_img_resized) # Save resized image
+                # Use KNOWN_FACES_DIR here
+                cv2.imwrite(str(Path(KNOWN_FACES_DIR) / filename), face_img_resized) # Save resized image
                 collected += 1
                 Logger(f"[INFO] Captured sample {collected}/{count_target} for {emp_id}")
                 
@@ -945,7 +849,6 @@ class FaceApp(App):
 
 
         Logger("[INFO] Capture complete – retraining recogniser…")
-        # Retrain recognizer after new samples are captured.
         self.recognizer, self.label_map = self._train_recognizer()
         Logger("[INFO] Update finished.")
         # Show "Registration completed" or "Face updated" message based on 'updating' flag
@@ -966,9 +869,7 @@ class FaceApp(App):
             self.sound.play()
         
         # Process the face image to passport size directly without saving to disk
-        # This function takes the expanded face_roi_color and crops/resizes it
-        # to the desired passport photo dimensions (240x320).
-        processed_face_image = _crop_and_resize_for_passport(face_roi_color, (240, 320))
+        processed_face_image = _crop_and_resize_for_passport(face_roi_color, (240, 320)) # Adjusted to 240x320
         
         # Schedule UI update for recognition display on the main thread
         current_time = datetime.now().strftime("%H:%M:%S")
@@ -1003,7 +904,8 @@ class FaceApp(App):
             self.preview_name_label.text = name
             self.preview_time_label.text = current_time
 
-            # Fade in animation (0.2s) + Hold (2.5s)
+            # Fade in animation
+            # Adjusted duration to 2.5 seconds (within 2-3 seconds as requested)
             anim = Animation(opacity=1, duration=0.2) + Animation(opacity=1, duration=2.5) 
             anim.bind(on_complete=self._hide_recognition_info) # Schedule fade out
             anim.start(self.preview_layout)
@@ -1135,8 +1037,7 @@ class FaceApp(App):
 
     def _load_emails(self) -> Dict[str, str]:
         """Loads stored user email addresses from a JSON file."""
-        # Use self.known_faces_dir here
-        emails_file = Path(self.known_faces_dir) / "user_emails.json"
+        emails_file = Path(KNOWN_FACES_DIR) / "user_emails.json"
         if emails_file.is_file():
             try:
                 with emails_file.open("r", encoding="utf-8") as f:
@@ -1147,9 +1048,8 @@ class FaceApp(App):
 
     def _save_email(self, emp_id: str, email: str) -> None:
         """Saves a user's email address to the JSON file."""
-        # Use self.known_faces_dir here
         self.user_emails[emp_id] = email
-        with (Path(self.known_faces_dir) / "user_emails.json").open("w", encoding="utf-8") as f:
+        with (Path(KNOWN_FACES_DIR) / "user_emails.json").open("w", encoding="utf-8") as f:
             json.dump(self.user_emails, f, indent=2)
 
     # ------------------------------------------------------------------

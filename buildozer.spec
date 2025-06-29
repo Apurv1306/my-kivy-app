@@ -1,3 +1,13 @@
+[buildozer]
+# (int) Log level (0 = error only, 1 = info, 2 = debug (full log))
+log_level = 2
+
+# (int) If set to 1, the app will be built in debug mode.
+# debug = 0 # Uncomment and set to 1 if you want to explicitly enable debug mode here.
+
+# (int) If set to 1, will warn you if you build as root
+warn_on_root = 1
+
 [app]
 
 # (str) Title of your application

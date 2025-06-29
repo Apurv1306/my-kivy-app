@@ -1,82 +1,193 @@
-[buildozer]
-# Log level: 0 (error), 1 (info), 2 (debug - highly recommended for debugging)
-log_level = 2
-warn_on_root = 1
+# (c) Copyright 2010-2024 The Kivy Authors. All Rights Reserved.
+#
+# This file is part of Kivy.
+#
+# Kivy is free software; you can redistribute it and/or modify it
+# under the terms of the GNU Lesser General Public License as published by
+# the Free Software Foundation; either version 3 of the License, or
+# (at your option) any later version.
+#
+# Kivy is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU Lesser General Public License for more details.
+#
+# You should have received a copy of the GNU Lesser General Public License
+# along with Kivy. If not, see <http://www.gnu.org/licenses/>.
 
 [app]
-# Application title
-title = FaceApp Attendance
 
-# Package identifier (e.g., com.yourcompany.yourapp)
-package.name = faceappattendance
+# (str) Title of your application
+title = My Face Recognition App
+
+# (str) Package name
+package.name = facerecognitionapp
+
+# (str) Package domain (needed for android/ios packaging)
 package.domain = org.nextgenbywala
 
-# Application version
+# (str) Application versioning (method 1)
 version = 0.1
 
-# Source code directory (usually the current directory)
+# (str) Application versioning (method 2)
+# version.regex = __version__ = ['"](.*)['"]
+# version.filename = %(source.dir)s/main.py
+
+# (list) Requirements (python3, kivy, and your specific Python packages)
+# Analyzed from your provided Python code:
+# - kivy: Your app is built with Kivy.
+# - opencv-python: Used extensively for camera, face detection (Haar cascade), and face recognition (LBPH).
+# - numpy: Core dependency for OpenCV and general numerical operations.
+# - requests: Used for submitting data to Google Forms.
+# - pillow: A common image processing library often implicitly required by Kivy and OpenCV for certain image formats/operations.
+# This is highly likely to fail or be very difficult to build for Android
+requirements = python3, kivy==2.3.0, opencv-python, numpy, requests, pillow, pyopenssl, certifi, smtplib
+# (str) Source code where the main.py lives
 source.dir = .
 
-# Files to include in the APK (Python files, assets, etc.)
-# Ensure all your Python files, the .xml cascade, and media files are included.
-source.include_exts = py,png,jpg,mp3,json,xml
+# (list) List of exclusions from your application directory, usually things like
+# .git, .buildozer, __pycache__ and other temporary files.
+source.exclude_dirs = __pycache__, .buildozer, .git, .github, venv, .vscode
 
-# Python and Kivy requirements, plus OpenCV and requests
-# Keep Kivy version fixed for consistency.
-# opencv is essential for computer vision.
-requirements = python3,kivy==2.0.0,opencv,requests,pillow
+# (str) The entrypoint of your application, default is main.py
+# Your provided code is the main application logic, assumed to be main.py.
+main.py = main.py
 
-# The category of the application
-category = other
+# (list) Pattern to include additional files not included by default.
+# - thank_you.mp3: Your app loads this audio file.
+# - tick.png: Your app loads this image for the overlay.
+include.patterns = thank_you.mp3,tick.png
 
-# Android permissions - essential for camera, internet, and internal storage access.
-android.permissions = INTERNET, CAMERA, READ_EXTERNAL_STORAGE, WRITE_EXTERNAL_STORAGE
+# (list) Extensions to use (i.e. android, ios, desktop)
+# 'android' will be automatically added when you build for Android.
+extensions =
 
-# Target Android API level. For Google Play Store, this needs to be high.
-# API level 33 or 34 are current common requirements.
+# (int) The Android SDK version to use. Setting to 33 for better stability with python-for-android.
 android.api = 33
 
-# Minimum Android API level supported by your application
+# (int) The Android NDK version to use. 25b is a stable choice compatible with many APIs.
+android.ndk = 25b
+
+# (str) The Android NDK directory (if you want to use a custom one)
+# android.ndk_path =
+
+# (str) The Android SDK directory (if you want to use a custom one)
+# android.sdk_path =
+
+# (str) The Android Java home directory (if you want to use a custom one)
+# android.java_home =
+
+# (bool) If you want to use the NDK from the Android SDK, set this to true
+android.skip_ndk_setup = False
+
+# (bool) If you want to use the SDK from the Android Studio, set this to true
+android.skip_sdk_setup = False
+
+# (bool) Whether to use the experimental new toolchain
+android.new_toolchain = False
+
+# (str) The minimum Android SDK version your app will support.
+# 21 ensures compatibility with a very wide range of Android devices.
 android.minapi = 21
 
-# Android device architectures to build for. arm64-v8a is dominant.
-android.archs = arm64-v8a, armeabi-v7a
+# (str) The architecture to build for (e.g., armeabi-v7a, arm64-v8a, x86_64)
+# Building for both common ARM architectures for broad device compatibility.
+android.arch = arm64-v8a,armeabi-v7a
 
-# Set the orientation of the application
-orientation = landscape 
+# (list) Permissions your application needs.
+# - CAMERA: Explicitly required for accessing the device camera.
+# - INTERNET: Required for sending data to Google Forms and sending emails (SMTP).
+# - WRITE_EXTERNAL_STORAGE/READ_EXTERNAL_STORAGE: While app data goes to internal storage,
+#   these can sometimes be implicitly required by libraries or for broader compatibility.
+android.permissions = INTERNET,CAMERA,WRITE_EXTERNAL_STORAGE,READ_EXTERNAL_STORAGE
 
-# Whether your application should be fullscreen or not (0=no, 1=yes)
-fullscreen = 0 
+# (list) Optional features your application needs (e.g., usb, audio, etc.)
+android.features =
 
-# Presplash background color (RGBA hex code)
-presplash.color = #000000FF
+# (bool) Add a notification service (experimental). Essential for larger apps.
+android.enable_multidex = True
 
-# Increase build timeout for potentially long compilation steps or slow downloads
-# Default is 5 minutes, 10-15 minutes might be needed for fresh builds.
-# This helps prevent GitHub Actions from prematurely cancelling the job.
-app.build_timeout = 900 # 900 seconds = 15 minutes
+# (list) Services (experimental)
+# android.services =
 
-# Add common Android Gradle dependencies if needed.
-# This can sometimes resolve missing library errors during the Android part of the build.
-# You might need to add specific versions depending on your `android.api`
-android.gradle_dependencies = \
-    'androidx.core:core-ktx:1.9.0',\
-    'androidx.appcompat:appcompat:1.6.1'
+# (bool) Whether to use a debug build (False for release). Start with debug.
+android.debug = False
 
-# Enable multidex for larger applications to prevent DEX limit issues.
-# OpenCV can make your app large enough to require this.
-android.enable_multidex = 1
+# (str) Path to your keystore for signing the APK (for release builds)
+# android.release_keystore = ~/my_release.keystore
 
-# Optional: You can specify exact NDK and SDK versions if `stable` gives issues
-# android.ndk = 25b # Example: NDK version
-# android.sdk = 2022.10.10 # Example: Android SDK build-tools version
-# android.java_home = /usr/lib/jvm/java-17-openjdk-amd64 # Example: Java path
+# (str) Password to your keystore
+# android.release_keystore_pass =
 
-# Optional: Path to custom icon and presplash image (uncomment to use)
-# icon.filename = %(source.dir)s/icon.png
-# presplash.filename = %(source.dir)s/presplash.png
+# (str) Alias of the key in the keystore
+# android.release_keystore_alias = my_alias
 
-# Optional: Keystore details for signing (uncomment for Play Store publishing)
-# android.keystore_alias = myappkey
-# android.keystore_pass = your_keystore_password
-# android.key_pass = your_key_password
+# (bool) Should the app be launched after build?
+# android.presplash_autoclose = False
+
+# (str) The background color of the presplash screen
+# android.presplash_color = #FFFFFF
+
+# (str) Path to the presplash image (1280x720 recommended)
+# android.presplash_img = %(source.dir)s/data/presplash.png
+
+# (bool) Enable the loading progress bar
+# android.loading_bar = True
+
+# (str) The color of the loading progress bar
+# android.loading_bar_color = #000000
+
+# (str) AAB format output (Android App Bundle). Recommended for Play Store.
+# android.aab = True
+
+# (bool) Whether to enable hardware acceleration (usually recommended)
+android.hardware_acceleration = True
+
+# (list) Add Java extensions, if you have any.
+# android.extra_java_options =
+
+# (bool) Do not compile against Python shared library (experimental)
+# android.no_shared_libs = True
+
+# (bool) Enable the use of external storage for the app data (useful for large data)
+# android.force_system_libs = True
+
+# (str) If you are using OpenGL ES 3.0, uncomment and set this.
+# android.api_level_target = 33
+
+# (bool) Whether to add additional logging for debugging purposes (recommended for development)
+# This filter directs logcat to show all Python logs at DEBUG level, and everything else at SILENT.
+# This makes it easier to find your app's specific log messages and Python tracebacks.
+android.logcat_filters = *:S python:D
+
+[buildozer]
+
+# (list) Arguments to pass to the python-for-android build process.
+# Use this for specific compilation flags or if you need to pass options to recipes.
+# For example, to enable a recipe's debug build:
+# android.extra_args = --enable-debug --with-recipe=opencv:debug
+android.extra_args =
+
+# (int) Log level (0-5). 5 provides maximum verbose output, crucial for debugging.
+log_level = 5
+
+# (str) Where Buildozer stores its internal files (builds, caches, etc.)
+buildozer.dir = .buildozer
+# (in buildozer.spec)
+source.include_exts = py, png, jpg, kv, json, cert
+# (str) Path to the Buildozer config file (usually this file)
+buildozer.config = buildozer.spec
+
+# (str) Version of Buildozer to use (leave empty for latest)
+# buildozer.version =
+
+[app.icon]
+# (str) Path to the icon file (PNG, 512x512 recommended)
+# You will need to provide your app icon here, e.g., 'data/icon.png'
+# android = data/icon.png
+# ios = data/icon.png
+# desktop = data/icon.png
+
+[app.url]
+# (str) URL to your application's homepage or repository
+# homepage = https://github.com/yourusername/yourproject

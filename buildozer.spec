@@ -9,7 +9,7 @@ title = FaceApp Attendance
 
 # Package identifier (e.g., com.yourcompany.yourapp)
 package.name = faceappattendance
-package.domain = org.yourcompany  # IMPORTANT: Change 'yourcompany' to your unique domain
+package.domain = org.nextgenbywala
 
 # Application version
 version = 0.1

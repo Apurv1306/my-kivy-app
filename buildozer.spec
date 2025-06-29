@@ -44,7 +44,8 @@ android.minapi = 21
 android.archs = arm64-v8a, armeabi-v7a
 
 # (int) Set the orientation of the application (e.g. landscape, portrait)
-orientation = landscape # Set to landscape as requested
+# Set to landscape as requested
+orientation = landscape 
 
 # (int) Whether your application should be fullscreen or not
 fullscreen = 0 # Set to 0 for debugging, can be 1 for production

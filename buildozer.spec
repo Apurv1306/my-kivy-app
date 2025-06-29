@@ -24,7 +24,7 @@ source.include_exts = py,png,jpg,mp3,json,xml
 # Python and Kivy requirements, plus OpenCV and requests
 # Keep Kivy version fixed for consistency.
 # opencv is essential for computer vision.
-requirements = python3,kivy==2.0.0,opencv,requests
+requirements = python3,kivy==2.0.0,opencv,requests,pillow
 
 # The category of the application
 category = other

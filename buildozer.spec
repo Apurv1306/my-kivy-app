@@ -40,8 +40,12 @@ version = 0.1
 # - numpy: Core dependency for OpenCV and general numerical operations.
 # - requests: Used for submitting data to Google Forms.
 # - pillow: A common image processing library often implicitly required by Kivy and OpenCV for certain image formats/operations.
-# This is highly likely to fail or be very difficult to build for Android
-requirements = python3, kivy==2.3.0, opencv-python, numpy, requests, pillow, pyopenssl, certifi, smtplib
+# - smtplib: Used for sending emails. (Note: smtplib is part of Python's standard library, so it's not strictly a 'pip' requirement
+#            for buildozer, but including it explicitly here doesn't hurt and clarifies intent for the Android toolchain.)
+requirements = python3, kivy==2.3.0, opencv-python, numpy, requests, pillow
+# Note: smtplib is a built-in Python module, so it generally doesn't need to be
+# listed in requirements for Python-for-Android unless there's a specific recipe for it.
+
 # (str) Source code where the main.py lives
 source.dir = .
 
@@ -56,7 +60,8 @@ main.py = main.py
 # (list) Pattern to include additional files not included by default.
 # - thank_you.mp3: Your app loads this audio file.
 # - tick.png: Your app loads this image for the overlay.
-include.patterns = thank_you.mp3,tick.png
+# - known_faces/: Your app reads and writes to this directory for face data.
+include.patterns = thank_you.mp3,tick.png,known_faces/*
 
 # (list) Extensions to use (i.e. android, ios, desktop)
 # 'android' will be automatically added when you build for Android.
@@ -105,13 +110,14 @@ android.permissions = INTERNET,CAMERA,WRITE_EXTERNAL_STORAGE,READ_EXTERNAL_STORA
 android.features =
 
 # (bool) Add a notification service (experimental). Essential for larger apps.
+# OpenCV can make the app large enough to require multidex.
 android.enable_multidex = True
 
 # (list) Services (experimental)
 # android.services =
 
 # (bool) Whether to use a debug build (False for release). Start with debug.
-android.debug = False
+android.debug = True # Set to True for debugging!
 
 # (str) Path to your keystore for signing the APK (for release builds)
 # android.release_keystore = ~/my_release.keystore
@@ -169,12 +175,11 @@ android.logcat_filters = *:S python:D
 android.extra_args =
 
 # (int) Log level (0-5). 5 provides maximum verbose output, crucial for debugging.
-log_level = 5
+log_level = 5 # Changed to 5 for maximum verbose output during build
 
 # (str) Where Buildozer stores its internal files (builds, caches, etc.)
 buildozer.dir = .buildozer
-# (in buildozer.spec)
-source.include_exts = py, png, jpg, kv, json, cert
+
 # (str) Path to the Buildozer config file (usually this file)
 buildozer.config = buildozer.spec
 

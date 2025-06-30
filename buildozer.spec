@@ -42,7 +42,7 @@ version = 0.1
 # - pillow: A common image processing library often implicitly required by Kivy and OpenCV for certain image formats/operations.
 # - smtplib: Used for sending emails. (Note: smtplib is part of Python's standard library, so it's not strictly a 'pip' requirement
 #            for buildozer, but including it explicitly here doesn't hurt and clarifies intent for the Android toolchain.)
-requirements = python3, kivy==2.3.0, opencv-python, numpy, requests, pillow
+requirements = python3, kivy==2.3.0, opencv-python, numpy, requests, pillow, smtplib
 # Note: smtplib is a built-in Python module, so it generally doesn't need to be
 # listed in requirements for Python-for-Android unless there's a specific recipe for it.
 

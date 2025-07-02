@@ -10,6 +10,7 @@ orientation = portrait
 osx.python_version = 3
 fullscreen = 1
 android.permissions = INTERNET, CAMERA, READ_EXTERNAL_STORAGE, WRITE_EXTERNAL_STORAGE
+android.no_permissions_required = 1
 
 [buildozer]
 log_level = 2

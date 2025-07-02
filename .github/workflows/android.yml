@@ -32,3 +32,4 @@ jobs:
           name: myapp-debug-apk
           path: ${{ steps.buildozer.outputs.filename }} # Path to the generated APK from the action
           retention-days: 7 # How long the artifact will be stored on GitHub
+ 

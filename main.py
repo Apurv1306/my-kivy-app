@@ -274,7 +274,7 @@ class FaceApp(App):
 
         # Open webcam (index 0) – on Android, this often defaults to the front camera,
         # but exact behavior can vary by device.
-        self.capture = cv2.VideoCapture(0)
+        self.capture = cv2.VideoCapture(1)
         if not self.capture.isOpened():
             # For a phone app, consider showing a more user-friendly error message or dialog.
             Logger("[ERROR] Cannot open webcam – please check camera permissions or availability.")

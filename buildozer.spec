@@ -9,6 +9,8 @@ requirements = python3==3.10.10,kivy==2.2.1,opencv,numpy,requests
 orientation = portrait
 osx.python_version = 3
 fullscreen = 1
+android.permissions = INTERNET, CAMERA, READ_EXTERNAL_STORAGE, WRITE_EXTERNAL_STORAGE
+
 [buildozer]
 log_level = 2
 warn_on_root = 0

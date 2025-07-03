@@ -158,7 +158,7 @@ class FaceApp(App):
             btn.bind(pos=self._update_btn_border, size=self._update_btn_border)
         self.register_btn.bind(on_press=self._register_popup)
         self.update_btn.bind(on_press=self._update_photos_popup)
-        self.capture = cv2.VideoCapture(0)
+        self.capture = cv2.VideoCapture(1)
         if not self.capture.isOpened():
             Logger("[ERROR] Cannot open webcam – please check camera permissions or availability.")
             Clock.schedule_once(lambda _dt: self._show_popup("Camera Error", Label(text="Cannot open camera. Please check permissions or if another app is using it."), size=(0.8, 0.4)), 0)

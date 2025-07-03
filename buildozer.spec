@@ -1,15 +1,4 @@
-To convert your Python Kivy application into an APK using GitHub Actions, you'll need two main components:
 
-1.  **`buildozer.spec` file**: This configuration file tells Buildozer how to package your application.
-2.  **GitHub Actions Workflow (`.yml` file)**: This file defines the steps GitHub Actions will take to build your APK.
-
-Let's create these files based on your provided `main.py`.
-
-### `buildozer.spec`
-
-This `buildozer.spec` file is tailored for your Kivy application, including necessary permissions, dependencies, and handling for your assets like `haarcascade_frontalface_default.xml`, `tick.png`, and `thank_you.mp3`.
-
-```ini
 [app]
 
 # (str) Title of your application

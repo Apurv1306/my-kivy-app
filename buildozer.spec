@@ -1,95 +1,65 @@
 [app]
-# ---------------------------------------------------------
-# Basic app metadata
-# ---------------------------------------------------------
+# (str) Title of your application
 title = FaceApp
+
+# (str) Package name
 package.name = faceapp
-package.domain = org.example               # change to your domain
-version = 0.1
-# If you keep the default icon, Buildozer generates one automatically.
-# icon.filename = data/icon.png
 
-# ---------------------------------------------------------
-# Source files to include in the APK
-# ---------------------------------------------------------
+# (str) Package domain (needed for android packaging)
+package.domain = com.example
+
+# (str) Source code where the main.py lives
 source.dir = .
-source.include_exts = py,kv,png,jpg,jpeg,wav,txt,json,xml
-# Exclude read-me files, tests, etc. to keep the APK small
-source.exclude_dirs = tests, .git, __pycache__
 
-# ---------------------------------------------------------
-# Main entry point
-# ---------------------------------------------------------
-entrypoint = flaskapk_offline_safe.py      # rename if you change the filename
+# (list) Source files to include (extensions)
+source.include_exts = py,png,jpg,mp3,xml
+
+# (list) List of inclusions using pattern matching
+source.include_patterns = *.png,*.jpg,*.mp3,*.xml
+
+# (str) Application versioning (method 1)
+version = 1.0
+
+# (list) Application requirements
+# Include python3, Kivy, OpenCV, NumPy, Requests, OpenSSL for SMTP TLS
+requirements = python3,kivy==2.3.0,opencv-python==4.12.0,numpy==2.3.2,requests==2.31.0
+
+# (str) Presplash of the application
+# presplash.filename = %(source.dir)s/presplash.png
+
+# (str) Icon of the application
+# icon.filename = %(source.dir)s/icon.png
+
+# (str) Supported orientation (one of landscape, portrait or all)
 orientation = portrait
-fullscreen = 0
 
-# ---------------------------------------------------------
-# Python for Android build settings
-# ---------------------------------------------------------
-# Tested with Python-for-Android master and NDK r26c
-requirements = \
-    python3==3.11, \
-    kivy==2.2.1, \
-    plyer, \
-    flask, \
-    flask_cors, \
-    requests, \
-    numpy, \
-    opencv, \
-    certifi
+# (list) Permissions
+android.permissions = CAMERA,INTERNET
 
-# Pin the current master branch of python-for-android (most reliable for Kivy 2.2+)
-p4a.branch = master
+# (int) Android API to use
+android.api = 31
 
-# OpenCV needs extra build flags for SIMD/NEON on ARM
-android.ndk = 26b
-android.api = 34
-ndk_api = 21                     # 21 is the minimum that ships with libc++
-android.archs = armeabi-v7a, arm64-v8a
+# (int) Minimum API required
+android.minapi = 21
 
-# ---------------------------------------------------------
-# Permissions & hardware features
-# ---------------------------------------------------------
-android.permissions = \
-    CAMERA, \
-    INTERNET, \
-    WRITE_EXTERNAL_STORAGE, \
-    READ_EXTERNAL_STORAGE, \
-    WAKE_LOCK, \
-    RECORD_AUDIO
+# (str) Android entry point, default is fine for Kivy apps
+android.entrypoint = org.kivy.android.PythonActivity
 
-# For devices that lack a camera, the app will be hidden in Google Play
-android.features = android.hardware.camera.autofocus, android.hardware.camera
+# (list) List of Java .jar files to add to libs for pyjnius (if any)
+# android.add_jars =
 
-# ---------------------------------------------------------
-# Java/Kotlin & Gradle tweaks
-# ---------------------------------------------------------
-# Use the modern Android Gradle Plugin
-android.gradle_dependencies = \
-    com.google.android.material:material:1.11.0
+# (list) Android application meta-data to set (key=value)
+# android.meta_data =
 
-# ---------------------------------------------------------
-# Optimisations & size trimming
-# ---------------------------------------------------------
-android.disable_legacy_sdktools = 1
-# Strip debug symbols to reduce APK size
-android.strip_mode = all
-# Remove empty locale files that pip brings along
-android.extra_dist_dirs = assets
-
-# ---------------------------------------------------------
-# Release keystore (auto-signed debug APK if left blank)
-# ---------------------------------------------------------
-# keys.properties path is recommended instead of hard-coding sensitive data.
-# keystore = ~/.keystores/faceapp-release.jks
-# keyalias = faceapp
-# keystorepw = ***
-# keyaliaspw = ***
-
-# ---------------------------------------------------------
-# Logging & debug helpers
-# ---------------------------------------------------------
+[buildozer]
+# (int) Log level (0=error, 1=warning, 2=info, 3=debug)
 log_level = 2
-# Uncomment while developing; comment for release builds to improve performance
-# android.logcat_args = *:I
+
+# (bool) Warn when running as root
+warn_on_root = 1
+
+# (str) Path for build artifacts
+# build_dir = ./.buildozer
+
+# (str) Path for final APK
+# bin_dir = ./bin
